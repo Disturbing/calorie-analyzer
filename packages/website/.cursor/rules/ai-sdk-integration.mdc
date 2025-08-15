@@ -1,0 +1,658 @@
+---
+description: AI SDK v5 integration patterns with AI Elements
+globs: *.ts,*.tsx,api/**/*
+---
+
+# AI SDK v5 Integration with AI Elements
+
+This guide covers integrating AI SDK v5 hooks and utilities with AI Elements components for building complete AI interfaces.
+
+## Core AI SDK v5 Hooks
+
+### 1. useChat Hook
+The primary hook for chat interfaces in AI SDK v5:
+```typescript
+import { useChat } from '@ai-sdk/react';
+import { Message, MessageContent } from '@/components/ai-elements/message';
+import { Response } from '@/components/ai-elements/response';
+
+const { 
+  messages, 
+  input,
+  setInput,
+  sendMessage,
+  status, 
+  error,
+  reload,
+  stop
+} = useChat({
+  api: '/api/chat',
+  onError: (error) => console.error('Chat error:', error),
+});
+
+// Send message with v5 API
+const handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+  sendMessage({ text: input });
+  setInput('');
+};
+```
+
+### 2. Message Processing Pattern
+Handle different message parts and types in v5:
+```typescript
+{messages.map((message) => (
+  <Message from={message.role} key={message.id}>
+    <MessageContent>
+      {message.parts.map((part, index) => {
+        switch (part.type) {
+          case 'text':
+            return <Response key={index}>{part.text}</Response>;
+          case 'image':
+            return <Image key={index} src={part.url} alt={part.alt} />;
+          case 'tool-call':
+            return <Tool key={index} call={part} />;
+          case 'tool-result':
+            return <ToolResult key={index} result={part} />;
+          // Handle specific tool types
+          case 'tool-weather':
+          case 'tool-convertFahrenheitToCelsius':
+            return (
+              <pre key={index}>
+                {JSON.stringify(part, null, 2)}
+              </pre>
+            );
+          default:
+            return null;
+        }
+      })}
+    </MessageContent>
+  </Message>
+))}
+```
+
+### 3. Status-Aware UI
+React to chat status changes:
+```typescript
+import { Loader } from '@/components/ai-elements/loader';
+import { Actions, Action } from '@/components/ai-elements/actions';
+
+// Show loader during streaming
+{status === 'streaming' && <Loader />}
+
+// Conditional actions based on status
+<Actions>
+  {status === 'streaming' ? (
+    <Action onClick={stop} label="Stop">
+      <StopIcon />
+    </Action>
+  ) : (
+    <Action onClick={reload} label="Regenerate">
+      <RefreshIcon />
+    </Action>
+  )}
+</Actions>
+```
+
+## Backend API Patterns (AI SDK v5)
+
+### 1. Basic Chat Route
+```typescript
+// api/chat/route.ts
+import { openai } from '@ai-sdk/openai';
+import { streamText, UIMessage, convertToModelMessages } from 'ai';
+
+// Allow streaming responses up to 30 seconds
+export const maxDuration = 30;
+
+export async function POST(req: Request) {
+  const { messages }: { messages: UIMessage[] } = await req.json();
+
+  const result = streamText({
+    model: openai('gpt-4o'),
+    messages: convertToModelMessages(messages),
+    system: 'You are a helpful assistant.',
+  });
+
+  return result.toUIMessageStreamResponse();
+}
+```
+
+### 2. Tool Integration (v5 Syntax)
+```typescript
+import { openai } from '@ai-sdk/openai';
+import { streamText, UIMessage, convertToModelMessages, tool } from 'ai';
+import { z } from 'zod';
+
+const weatherTool = tool({
+  description: 'Get weather information',
+  inputSchema: z.object({
+    location: z.string().describe('Location to get weather for'),
+  }),
+  execute: async ({ location }) => {
+    // Fetch weather data
+    const temperature = Math.round(Math.random() * (90 - 32) + 32);
+    return { 
+      location,
+      temperature,
+      conditions: 'sunny' 
+    };
+  },
+});
+
+export async function POST(req: Request) {
+  const { messages }: { messages: UIMessage[] } = await req.json();
+
+  const result = streamText({
+    model: openai('gpt-4o'),
+    messages: convertToModelMessages(messages),
+    tools: { weather: weatherTool },
+  });
+
+  return result.toUIMessageStreamResponse();
+}
+```
+
+### 3. Multi-Step Tool Calls
+```typescript
+import { openai } from '@ai-sdk/openai';
+import { streamText, UIMessage, convertToModelMessages, tool, stepCountIs } from 'ai';
+import { z } from 'zod';
+
+export async function POST(req: Request) {
+  const { messages }: { messages: UIMessage[] } = await req.json();
+
+  const result = streamText({
+    model: openai('gpt-4o'),
+    messages: convertToModelMessages(messages),
+    stopWhen: stepCountIs(5), // Allow up to 5 steps
+    tools: {
+      weather: tool({
+        description: 'Get the weather in a location (fahrenheit)',
+        inputSchema: z.object({
+          location: z.string().describe('The location to get the weather for'),
+        }),
+        execute: async ({ location }) => {
+          const temperature = Math.round(Math.random() * (90 - 32) + 32);
+          return { location, temperature };
+        },
+      }),
+      convertFahrenheitToCelsius: tool({
+        description: 'Convert a temperature in fahrenheit to celsius',
+        inputSchema: z.object({
+          temperature: z.number().describe('The temperature in fahrenheit to convert'),
+        }),
+        execute: async ({ temperature }) => {
+          const celsius = Math.round((temperature - 32) * (5 / 9));
+          return { celsius };
+        },
+      }),
+    },
+  });
+
+  return result.toUIMessageStreamResponse();
+}
+```
+
+## Advanced Integration Patterns (AI SDK v5)
+
+### 1. Suggestion Integration
+```typescript
+import { Suggestion } from '@/components/ai-elements/suggestion';
+
+const suggestions = [
+  'Explain quantum computing',
+  'Write a Python function',
+  'Summarize this document'
+];
+
+<div className="suggestions">
+  {suggestions.map((suggestion) => (
+    <Suggestion 
+      key={suggestion}
+      onClick={() => sendMessage({ text: suggestion })}
+    >
+      {suggestion}
+    </Suggestion>
+  ))}
+</div>
+```
+
+### 2. File Attachments (v5)
+
+#### FileList Attachments
+Handle file uploads using FileList from file inputs:
+```typescript
+import { useChat } from '@ai-sdk/react';
+import { useRef, useState } from 'react';
+
+const { messages, sendMessage, status } = useChat();
+const [input, setInput] = useState('');
+const [files, setFiles] = useState<FileList | undefined>(undefined);
+const fileInputRef = useRef<HTMLInputElement>(null);
+
+const handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+  if (input.trim()) {
+    sendMessage({
+      text: input,
+      files, // FileList automatically converted to data URLs
+    });
+    setInput('');
+    setFiles(undefined);
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+};
+
+// Render with file attachments
+{messages.map((message) => (
+  <div key={message.id}>
+    <div>{`${message.role}: `}</div>
+    <div>
+      {message.parts.map((part, index) => {
+        if (part.type === 'text') {
+          return <span key={index}>{part.text}</span>;
+        }
+        
+        if (part.type === 'file' && part.mediaType?.startsWith('image/')) {
+          return <img key={index} src={part.url} alt={part.filename} />;
+        }
+        
+        return null;
+      })}
+    </div>
+  </div>
+))}
+
+// File input
+<form onSubmit={handleSubmit}>
+  <input
+    type="file"
+    onChange={(event) => {
+      if (event.target.files) {
+        setFiles(event.target.files);
+      }
+    }}
+    multiple
+    ref={fileInputRef}
+  />
+  <input
+    value={input}
+    placeholder="Send message..."
+    onChange={(e) => setInput(e.target.value)}
+    disabled={status !== 'ready'}
+  />
+  <button type="submit" disabled={status !== 'ready'}>
+    Send
+  </button>
+</form>
+```
+
+#### File Objects Attachments
+Send pre-defined file objects:
+```typescript
+import { useChat } from '@ai-sdk/react';
+import { FileUIPart } from 'ai';
+
+const { messages, sendMessage } = useChat();
+const [input, setInput] = useState('');
+
+// Pre-defined file objects
+const [files] = useState<FileUIPart[]>([
+  {
+    type: 'file',
+    filename: 'chart.png',
+    mediaType: 'image/png',
+    url: 'https://example.com/chart.png',
+  },
+  {
+    type: 'file',
+    filename: 'data.csv',
+    mediaType: 'text/csv',
+    url: 'data:text/csv;base64,TmFtZSxBZ2U...',
+  },
+]);
+
+const handleSubmit = (e: React.FormEvent) => {
+  e.preventDefault();
+  if (input.trim()) {
+    sendMessage({
+      text: input,
+      files, // Pre-defined file objects
+    });
+    setInput('');
+  }
+};
+```
+
+#### Custom File Upload Processing
+Handle file uploads with custom processing:
+```typescript
+import { useChat } from '@ai-sdk/react';
+
+const { sendMessage } = useChat();
+
+const handleFileUpload = async (file: File) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  // Upload and process file
+  const response = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  });
+  
+  const { fileUrl, analysis } = await response.json();
+  
+  // Send to AI with file context using v5 API
+  sendMessage({
+    text: `Please analyze this file: ${fileUrl}`,
+    files: [{ 
+      type: 'file',
+      filename: file.name,
+      mediaType: file.type,
+      url: fileUrl,
+    }]
+  });
+};
+```
+
+### 3. Streaming with Citations
+```typescript
+// Backend: Include sources in streaming response
+import { InlineCitation } from '@/components/ai-elements/inline-citation';
+
+const result = streamText({
+  model: openai('gpt-4'),
+  messages: convertToModelMessages(messages),
+  onFinish: async ({ text, finishReason, usage }) => {
+    // Log completion details
+    console.log('Completion:', { finishReason, usage });
+  },
+});
+
+// Frontend: Render citations
+<Response>
+  {messageText}
+  <InlineCitation source={{ title: 'Source Title', url: 'https://...' }}>
+    [1]
+  </InlineCitation>
+</Response>
+```
+
+### 4. Error Handling (AI SDK v5)
+```typescript
+const { error, reload } = useChat({
+  onError: (error) => {
+    // Handle different error types in v5
+    if (error.message.includes('rate limit')) {
+      toast.error('Too many requests. Please try again later.');
+    } else if (error.message.includes('network')) {
+      toast.error('Network error. Check your connection.');
+    } else {
+      toast.error('Something went wrong. Please try again.');
+    }
+  },
+});
+
+// Display error state in UI
+{error && (
+  <div className="error-message">
+    <p>Error: {error.message}</p>
+    <Action onClick={reload} label="Retry">
+      <RefreshIcon />
+    </Action>
+  </div>
+)}
+```
+
+## Performance Optimization
+
+### 1. Message Virtualization
+For long conversations, consider virtualization:
+```typescript
+import { FixedSizeList as List } from 'react-window';
+
+const MessageList = ({ messages }) => (
+  <List
+    height={600}
+    itemCount={messages.length}
+    itemSize={100}
+    itemData={messages}
+  >
+    {({ index, style, data }) => (
+      <div style={style}>
+        <Message from={data[index].role}>
+          <MessageContent>
+            <Response>{data[index].content}</Response>
+          </MessageContent>
+        </Message>
+      </div>
+    )}
+  </List>
+);
+```
+
+### 2. Debounced Input (v5)
+For real-time features:
+```typescript
+import { useDebouncedCallback } from 'use-debounce';
+
+const debouncedSubmit = useDebouncedCallback(
+  (value: string) => {
+    if (value.trim()) {
+      sendMessage({ text: value });
+    }
+  },
+  500
+);
+```
+
+### 3. Selective Re-rendering
+Use React.memo strategically:
+```typescript
+const MessageItem = React.memo(({ message }) => (
+  <Message from={message.role}>
+    <MessageContent>
+      <Response>{message.content}</Response>
+    </MessageContent>
+  </Message>
+), (prevProps, nextProps) => {
+  return prevProps.message.id === nextProps.message.id &&
+         prevProps.message.content === nextProps.message.content;
+});
+```
+
+## Transport Configuration (AI SDK v5)
+
+### 1. Default Transport Setup
+```typescript
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
+
+const { messages, sendMessage, status } = useChat({
+  transport: new DefaultChatTransport({
+    api: '/api/chat',
+  }),
+});
+```
+
+### 2. Custom Transport Configuration
+```typescript
+import { useChat } from '@ai-sdk/react';
+import { DefaultChatTransport } from 'ai';
+
+const { messages, sendMessage, status } = useChat({
+  transport: new DefaultChatTransport({
+    api: '/api/chat',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Custom-Header': 'value',
+    },
+    credentials: 'include',
+  }),
+  onError: (error) => {
+    console.error('Transport error:', error);
+  },
+});
+```
+
+## Type Safety (AI SDK v5)
+
+### 1. Tool Type Inference
+```typescript
+import { InferUITool, InferUITools, ToolSet } from 'ai';
+import { z } from 'zod';
+
+// Single tool inference
+const weatherTool = {
+  description: 'Get the current weather',
+  parameters: z.object({
+    location: z.string().describe('The city and state'),
+  }),
+  execute: async ({ location }) => {
+    return `The weather in ${location} is sunny.`;
+  },
+};
+
+type WeatherUITool = InferUITool<typeof weatherTool>;
+// Result: { input: { location: string }; output: string; }
+
+// Multiple tools inference
+const tools: ToolSet = {
+  weather: weatherTool,
+  calculator: {
+    description: 'Perform basic arithmetic',
+    parameters: z.object({
+      operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
+      a: z.number(),
+      b: z.number(),
+    }),
+    execute: async ({ operation, a, b }) => {
+      switch (operation) {
+        case 'add': return a + b;
+        case 'subtract': return a - b;
+        case 'multiply': return a * b;
+        case 'divide': return a / b;
+      }
+    },
+  },
+};
+
+type MyUITools = InferUITools<typeof tools>;
+```
+
+### 2. Custom UIMessage Types
+```typescript
+import type { UIMessage, UIDataTypes } from 'ai';
+
+type MyUIMessage = UIMessage<never, UIDataTypes, MyUITools>;
+
+const { messages } = useChat<MyUIMessage>({
+  transport: new DefaultChatTransport({
+    api: '/api/chat',
+  }),
+});
+```
+
+### 3. Extended Message Types
+```typescript
+import type { UIMessage } from 'ai';
+
+interface ExtendedMessage extends UIMessage {
+  metadata?: {
+    sources?: Array<{ title: string; url: string }>;
+    confidence?: number;
+    processingTime?: number;
+  };
+}
+```
+
+### 4. File Attachment Types
+```typescript
+import { FileUIPart } from 'ai';
+
+interface CustomFileAttachment extends FileUIPart {
+  uploadProgress?: number;
+  processingStatus?: 'pending' | 'processing' | 'complete' | 'error';
+}
+```
+
+## Testing Patterns (AI SDK v5)
+
+### 1. Mock useChat Hook (v5)
+```typescript
+// In tests for AI SDK v5
+const mockUseChat = {
+  messages: [],
+  input: '',
+  setInput: jest.fn(),
+  sendMessage: jest.fn(),
+  status: 'ready' as const,
+  error: null,
+  reload: jest.fn(),
+  stop: jest.fn(),
+};
+
+jest.mock('@ai-sdk/react', () => ({
+  useChat: () => mockUseChat,
+}));
+```
+
+### 2. Component Testing (v5)
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { ChatInterface } from './ChatInterface';
+
+test('sends message on submit', async () => {
+  render(<ChatInterface />);
+  
+  const input = screen.getByPlaceholderText('Type your message...');
+  const submit = screen.getByRole('button', { name: /send/i });
+  
+  fireEvent.change(input, { target: { value: 'Hello AI' } });
+  fireEvent.click(submit);
+  
+  expect(mockUseChat.sendMessage).toHaveBeenCalledWith({ text: 'Hello AI' });
+  expect(mockUseChat.setInput).toHaveBeenCalledWith('');
+});
+```
+
+## Key AI SDK v5 Migration Changes
+
+### 1. Hook API Changes
+- `handleInputChange` and `handleSubmit` → `setInput` and `sendMessage`
+- `append()` → `sendMessage({ text: '...' })`
+- Message sending now uses objects: `sendMessage({ text: content })`
+
+### 2. Tool Definition Changes
+- `parameters:` → `inputSchema:`
+- Tool results now typed with specific tool names (e.g., `tool-weather`)
+
+### 3. Multi-step Tool Calls
+- New `stopWhen` parameter with `stepCountIs(n)` for controlling tool execution
+- Automatic tool result processing for better conversational flow
+
+### 4. Import Changes
+- Provider imports: `@ai-sdk/openai` instead of custom provider setup
+- New imports: `stepCountIs`, updated `tool` function signature
+
+### 5. Enhanced Type Safety
+- `UIMessage[]` type for frontend messages
+- Automatic conversion with `convertToModelMessages()` for backend
+- Better tool result typing with specific tool names
+
+### 6. Transport Configuration
+- New `DefaultChatTransport` for custom API configuration
+- Enhanced error handling and status management
+- Better control over message streaming
+
+### 7. Attachment Support
+- Native FileList support for file uploads
+- File object attachments with data URLs
+- Automatic content type handling for images and text
+- Enhanced multimodal capabilities
+```
