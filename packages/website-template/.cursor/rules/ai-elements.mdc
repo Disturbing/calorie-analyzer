@@ -1,0 +1,265 @@
+---
+alwaysApply: true
+description: AI Elements component library usage and best practices
+globs: *.ts,*.tsx,*.js,*.jsx
+---
+
+# AI Elements Component Library Guide
+
+AI Elements is a comprehensive React component library for building AI interfaces. All components are located in [src/components/ai-elements/](mdc:my-next-app/src/components/ai-elements/) and follow consistent patterns.
+
+## Core Components Overview
+
+### Conversation Flow Components
+- **[Message](mdc:my-next-app/src/components/ai-elements/message.tsx)**: Individual chat messages with avatar support
+- **[Conversation](mdc:my-next-app/src/components/ai-elements/conversation.tsx)**: Conversation container with auto-scroll
+- **[Response](mdc:my-next-app/src/components/ai-elements/response.tsx)**: AI response rendering with markdown support
+- **[PromptInput](mdc:my-next-app/src/components/ai-elements/prompt-input.tsx)**: Input component for user prompts
+
+### Interactive Components  
+- **[Actions](mdc:my-next-app/src/components/ai-elements/actions.tsx)**: Action buttons (retry, like, copy, etc.)
+- **[Branch](mdc:my-next-app/src/components/ai-elements/branch.tsx)**: Navigate between response branches
+- **[Suggestion](mdc:my-next-app/src/components/ai-elements/suggestion.tsx)**: Suggested prompts or actions
+
+### Content Display Components
+- **[CodeBlock](mdc:my-next-app/src/components/ai-elements/code-block.tsx)**: Syntax-highlighted code with copy functionality
+- **[Image](mdc:my-next-app/src/components/ai-elements/image.tsx)**: AI-generated image display
+- **[InlineCitation](mdc:my-next-app/src/components/ai-elements/inline-citation.tsx)**: Source citations
+- **[Sources](mdc:my-next-app/src/components/ai-elements/source.tsx)**: Reference source listings
+
+### Status & Utility Components
+- **[Loader](mdc:my-next-app/src/components/ai-elements/loader.tsx)**: Loading states
+- **[Task](mdc:my-next-app/src/components/ai-elements/task.tsx)**: Task progress display
+- **[Tool](mdc:my-next-app/src/components/ai-elements/tool.tsx)**: Tool interaction display
+- **[Reasoning](mdc:my-next-app/src/components/ai-elements/reasoning.tsx)**: AI reasoning process display
+- **[WebPreview](mdc:my-next-app/src/components/ai-elements/web-preview.tsx)**: Web content previews
+
+## Usage Patterns
+
+### 1. Component Import Convention
+```typescript
+// Import multiple related components from same file
+import {
+  Message,
+  MessageContent,
+  MessageAvatar,
+} from '@/components/ai-elements/message';
+
+import {
+  Actions,
+  Action,
+} from '@/components/ai-elements/actions';
+```
+
+### 2. Composition Patterns
+AI Elements follow a compositional approach where parent components contain subcomponents:
+
+```typescript
+// Message composition
+<Message from="user">
+  <MessageAvatar src="/avatar.jpg" name="User" />
+  <MessageContent>
+    <Response>{messageText}</Response>
+  </MessageContent>
+</Message>
+
+// Actions composition
+<Actions className="mt-2">
+  <Action label="Retry" onClick={handleRetry}>
+    <RefreshIcon className="size-4" />
+  </Action>
+  <Action label="Copy" onClick={handleCopy}>
+    <CopyIcon className="size-4" />
+  </Action>
+</Actions>
+```
+
+### 3. AI SDK Integration
+Components integrate seamlessly with AI SDK hooks like `useChat`:
+
+```typescript
+import { useChat } from '@ai-sdk/react';
+
+const { messages, sendMessage, status } = useChat();
+
+// Render messages
+{messages.map((message) => (
+  <Message from={message.role} key={message.id}>
+    <MessageContent>
+      {message.parts.map((part) => {
+        switch (part.type) {
+          case 'text':
+            return <Response>{part.text}</Response>;
+          // Handle other part types
+        }
+      })}
+    </MessageContent>
+  </Message>
+))}
+```
+
+### 4. Prompt Input with Status
+```typescript
+<PromptInput onSubmit={handleSubmit}>
+  <PromptInputTextarea
+    value={input}
+    onChange={(e) => setInput(e.target.value)}
+    placeholder="Ask me anything..."
+  />
+  <PromptInputToolbar>
+    <PromptInputSubmit 
+      status={status} 
+      disabled={!input.trim()} 
+    />
+  </PromptInputToolbar>
+</PromptInput>
+```
+
+## Styling Guidelines
+
+### 1. Consistent Class Names
+- Use `cn()` utility from [lib/utils.ts](mdc:my-next-app/src/lib/utils.ts) for conditional classes
+- Follow Tailwind CSS conventions
+- Maintain consistent spacing and sizing patterns
+
+### 2. State-based Styling
+Components use group classes for conditional styling:
+```typescript
+// From Message component
+className={cn(
+  'group flex w-full items-end justify-end gap-2 py-4',
+  from === 'user' ? 'is-user' : 'is-assistant flex-row-reverse',
+)}
+
+// Child components can reference parent state
+'group-[.is-user]:bg-primary group-[.is-user]:text-primary-foreground'
+```
+
+### 3. Theme Support
+Components support both light and dark themes:
+```typescript
+// CodeBlock example with dual theme support
+<SyntaxHighlighter
+  style={oneLight}
+  className="dark:hidden"
+>
+  {code}
+</SyntaxHighlighter>
+<SyntaxHighlighter
+  style={oneDark}  
+  className="hidden dark:block"
+>
+  {code}
+</SyntaxHighlighter>
+```
+
+## Props Patterns
+
+### 1. Extending HTML Attributes
+Components extend native HTML attributes for flexibility:
+```typescript
+export type MessageProps = HTMLAttributes<HTMLDivElement> & {
+  from: UIMessage['role'];
+};
+
+export type ActionProps = ComponentProps<typeof Button> & {
+  tooltip?: string;
+  label?: string;
+};
+```
+
+### 2. Optional Props with Defaults
+```typescript
+// PromptInputTextarea with sensible defaults
+export const PromptInputTextarea = ({
+  placeholder = 'What would you like to know?',
+  minHeight = 48,
+  maxHeight = 164,
+  ...props
+}: PromptInputTextareaProps) => {
+  // Component implementation
+};
+```
+
+### 3. Callback Props
+Components provide callbacks for custom handling:
+```typescript
+<CodeBlockCopyButton
+  onCopy={() => console.log('Code copied')}
+  onError={(error) => console.error('Copy failed:', error)}
+/>
+```
+
+## Best Practices
+
+### 1. Component Installation
+Use the CLI tool to install components:
+```bash
+npx ai-elements@latest add [component-name]
+```
+
+### 2. Accessibility
+- Components include proper ARIA labels and semantic HTML
+- Use `label` or `tooltip` props for screen reader support
+- Keyboard navigation is built-in for interactive components
+
+### 3. Performance
+- Response component uses `memo()` and custom comparison for streaming
+- CodeBlock context prevents unnecessary re-renders
+- Lazy loading for syntax highlighting
+
+### 4. Error Handling
+- Response component handles incomplete markdown during streaming
+- CodeBlock handles clipboard API availability
+- Proper error callbacks for async operations
+
+### 5. Customization
+- All components accept custom `className` props
+- Components can be modified directly since code lives in your project
+- Re-installation asks before overwriting custom changes
+
+## Advanced Usage
+
+### 1. Branch Navigation
+```typescript
+<Branch defaultBranch={0} onBranchChange={handleBranchChange}>
+  <BranchMessages>
+    {/* Multiple message variations */}
+  </BranchMessages>
+  <BranchSelector from="assistant">
+    <BranchPrevious />
+    <BranchPage />
+    <BranchNext />
+  </BranchSelector>
+</Branch>
+```
+
+### 2. Complex Response Handling
+The Response component handles:
+- Markdown rendering with syntax highlighting
+- Math equations (KaTeX)
+- Table formatting
+- Code block integration
+- Link and image security (hardened-react-markdown)
+
+### 3. Status Management
+Use ChatStatus types from AI SDK for consistent status handling:
+```typescript
+import type { ChatStatus } from 'ai';
+
+<PromptInputSubmit
+  status={status}
+  // Icons change based on status: ready, submitted, streaming, error
+/>
+```
+
+## Integration with UI Components
+
+AI Elements build on shadcn/ui components:
+- [Button](mdc:my-next-app/src/components/ui/button.tsx)
+- [Avatar](mdc:my-next-app/src/components/ui/avatar.tsx)  
+- [Tooltip](mdc:my-next-app/src/components/ui/tooltip.tsx)
+- [Select](mdc:my-next-app/src/components/ui/select.tsx)
+- [Textarea](mdc:my-next-app/src/components/ui/textarea.tsx)
+
+Ensure these base components are properly configured before using AI Elements.

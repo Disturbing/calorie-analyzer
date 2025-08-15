@@ -1,0 +1,469 @@
+---
+description: AI Elements component development and customization patterns
+globs: src/components/ai-elements/**/*,*.ts,*.tsx
+---
+
+# AI Elements Development & Customization Guide
+
+Guidelines for developing, customizing, and extending AI Elements components in your project.
+
+## Component Development Patterns
+
+### 1. Component Structure Template
+Every AI Elements component follows this structure:
+```typescript
+'use client'; // If using client-side features
+
+import type { ComponentProps, HTMLAttributes } from 'react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button'; // shadcn/ui deps
+
+// Type definitions
+export type ComponentNameProps = HTMLAttributes<HTMLDivElement> & {
+  // Custom props
+  variant?: 'default' | 'outline';
+  size?: 'sm' | 'md' | 'lg';
+  // Optional props with defaults
+  showLabel?: boolean;
+};
+
+// Main component
+export const ComponentName = ({
+  className,
+  variant = 'default',
+  size = 'md',
+  children,
+  ...props
+}: ComponentNameProps) => (
+  <div
+    className={cn(
+      'base-classes',
+      {
+        'variant-classes': variant === 'default',
+        'size-classes': size === 'md',
+      },
+      className,
+    )}
+    {...props}
+  >
+    {children}
+  </div>
+);
+
+// Sub-components if needed
+export type ComponentNameItemProps = ComponentProps<typeof Button> & {
+  label?: string;
+};
+
+export const ComponentNameItem = ({
+  label,
+  className,
+  ...props
+}: ComponentNameItemProps) => (
+  <Button className={cn('item-classes', className)} {...props}>
+    {label}
+  </Button>
+);
+```
+
+### 2. Context Pattern for Complex Components
+Use React Context for components with shared state:
+```typescript
+import { createContext, useContext } from 'react';
+
+type ComponentContextType = {
+  isOpen: boolean;
+  toggle: () => void;
+  selectedItem: string | null;
+};
+
+const ComponentContext = createContext<ComponentContextType>({
+  isOpen: false,
+  toggle: () => {},
+  selectedItem: null,
+});
+
+export const useComponentContext = () => {
+  const context = useContext(ComponentContext);
+  if (!context) {
+    throw new Error('useComponentContext must be used within ComponentProvider');
+  }
+  return context;
+};
+```
+
+### 3. Compound Component Pattern
+Create flexible component APIs:
+```typescript
+// Parent component
+export const Actions = ({ children, ...props }) => (
+  <div className="flex items-center gap-1" {...props}>
+    {children}
+  </div>
+);
+
+// Child components
+Actions.Button = ({ children, ...props }) => (
+  <Button size="sm" variant="ghost" {...props}>
+    {children}
+  </Button>
+);
+
+Actions.Separator = () => <div className="mx-1 h-4 w-px bg-border" />;
+
+// Usage
+<Actions>
+  <Actions.Button>Copy</Actions.Button>
+  <Actions.Separator />
+  <Actions.Button>Share</Actions.Button>
+</Actions>
+```
+
+## Customization Guidelines
+
+### 1. Safe Customization Points
+These areas are safe to modify without breaking updates:
+- **CSS classes**: Add custom Tailwind classes
+- **Default props**: Change default values
+- **Event handlers**: Add custom logic
+- **Styling variants**: Add new variants
+
+```typescript
+// Safe: Adding custom styling
+<Message 
+  className="my-custom-message border-2 border-blue-500" 
+  from="user"
+>
+  <MessageContent className="bg-gradient-to-r from-blue-50 to-purple-50">
+    Custom styled content
+  </MessageContent>
+</Message>
+
+// Safe: Adding custom event handling
+<Action 
+  onClick={(e) => {
+    // Custom logic
+    handleCustomAnalytics('button_clicked');
+    // Then call original handler
+    originalOnClick?.(e);
+  }}
+  label="Custom Action"
+>
+  <CustomIcon />
+</Action>
+```
+
+### 2. Component Extension Pattern
+Extend components while preserving original functionality:
+```typescript
+// Create wrapper component
+import { Response as BaseResponse } from '@/components/ai-elements/response';
+
+export const CustomResponse = ({
+  children,
+  showWordCount = false,
+  onContentChange,
+  ...props
+}) => {
+  const wordCount = typeof children === 'string' 
+    ? children.split(/\s+/).length 
+    : 0;
+
+  useEffect(() => {
+    onContentChange?.(children);
+  }, [children, onContentChange]);
+
+  return (
+    <div>
+      <BaseResponse {...props}>
+        {children}
+      </BaseResponse>
+      {showWordCount && (
+        <div className="text-xs text-muted-foreground mt-2">
+          Words: {wordCount}
+        </div>
+      )}
+    </div>
+  );
+};
+```
+
+### 3. Theme Customization
+Customize appearance through CSS variables:
+```css
+/* In your global CSS */
+.ai-elements-dark {
+  --ai-message-bg: theme(colors.gray.900);
+  --ai-message-text: theme(colors.gray.100);
+  --ai-accent: theme(colors.blue.500);
+}
+
+.ai-elements-custom {
+  --ai-message-bg: theme(colors.purple.50);
+  --ai-accent: theme(colors.purple.600);
+  --ai-border-radius: theme(borderRadius.2xl);
+}
+```
+
+## Performance Optimization
+
+### 1. Memoization Patterns
+```typescript
+import { memo, useMemo, useCallback } from 'react';
+
+// Memo with custom comparison
+export const OptimizedMessage = memo(({ message, ...props }) => (
+  <Message from={message.role} {...props}>
+    <MessageContent>
+      <Response>{message.content}</Response>
+    </MessageContent>
+  </Message>
+), (prevProps, nextProps) => {
+  return prevProps.message.id === nextProps.message.id &&
+         prevProps.message.content === nextProps.message.content;
+});
+
+// Memoized complex calculations
+const MessageAnalytics = ({ message }) => {
+  const analytics = useMemo(() => {
+    return {
+      wordCount: message.content.split(/\s+/).length,
+      readingTime: Math.ceil(message.content.split(/\s+/).length / 200),
+      sentiment: analyzeSentiment(message.content),
+    };
+  }, [message.content]);
+
+  return <div className="analytics">{/* Render analytics */}</div>;
+};
+```
+
+### 2. Lazy Loading
+```typescript
+import { lazy, Suspense } from 'react';
+import { Loader } from '@/components/ai-elements/loader';
+
+const CodeBlock = lazy(() => import('@/components/ai-elements/code-block'));
+const WebPreview = lazy(() => import('@/components/ai-elements/web-preview'));
+
+const LazyCodeBlock = ({ code, language }) => (
+  <Suspense fallback={<Loader />}>
+    <CodeBlock code={code} language={language} />
+  </Suspense>
+);
+```
+
+### 3. Virtual Scrolling for Large Lists
+```typescript
+import { FixedSizeList } from 'react-window';
+
+const VirtualizedConversation = ({ messages }) => {
+  const Row = ({ index, style }) => (
+    <div style={style}>
+      <Message from={messages[index].role}>
+        <MessageContent>
+          <Response>{messages[index].content}</Response>
+        </MessageContent>
+      </Message>
+    </div>
+  );
+
+  return (
+    <FixedSizeList
+      height={600}
+      itemCount={messages.length}
+      itemSize={120}
+      width="100%"
+    >
+      {Row}
+    </FixedSizeList>
+  );
+};
+```
+
+## Accessibility Enhancements
+
+### 1. Enhanced ARIA Support
+```typescript
+export const AccessibleMessage = ({ 
+  message, 
+  messageIndex, 
+  totalMessages,
+  ...props 
+}) => (
+  <Message
+    role="article"
+    aria-label={`Message ${messageIndex + 1} of ${totalMessages} from ${message.role}`}
+    aria-describedby={`message-content-${message.id}`}
+    {...props}
+  >
+    <MessageContent id={`message-content-${message.id}`}>
+      <Response>{message.content}</Response>
+    </MessageContent>
+  </Message>
+);
+```
+
+### 2. Keyboard Navigation
+```typescript
+const KeyboardNavigableActions = ({ actions, onSelect }) => {
+  const [focusedIndex, setFocusedIndex] = useState(0);
+
+  const handleKeyDown = (e) => {
+    switch (e.key) {
+      case 'ArrowRight':
+        setFocusedIndex((prev) => (prev + 1) % actions.length);
+        break;
+      case 'ArrowLeft':
+        setFocusedIndex((prev) => (prev - 1 + actions.length) % actions.length);
+        break;
+      case 'Enter':
+      case ' ':
+        onSelect(actions[focusedIndex]);
+        break;
+    }
+  };
+
+  return (
+    <Actions onKeyDown={handleKeyDown} tabIndex={0}>
+      {actions.map((action, index) => (
+        <Action
+          key={action.id}
+          aria-current={index === focusedIndex ? 'true' : 'false'}
+          tabIndex={index === focusedIndex ? 0 : -1}
+          onClick={() => onSelect(action)}
+        >
+          {action.icon}
+        </Action>
+      ))}
+    </Actions>
+  );
+};
+```
+
+## Testing Strategies
+
+### 1. Component Testing
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { Actions, Action } from '@/components/ai-elements/actions';
+
+describe('Actions Component', () => {
+  test('renders actions with proper accessibility', () => {
+    const handleClick = jest.fn();
+    
+    render(
+      <Actions>
+        <Action label="Copy" onClick={handleClick}>
+          <CopyIcon />
+        </Action>
+      </Actions>
+    );
+
+    const button = screen.getByRole('button', { name: 'Copy' });
+    expect(button).toBeInTheDocument();
+    
+    fireEvent.click(button);
+    expect(handleClick).toHaveBeenCalled();
+  });
+
+  test('supports keyboard navigation', () => {
+    render(<KeyboardNavigableActions actions={mockActions} />);
+    
+    const container = screen.getByRole('group');
+    fireEvent.keyDown(container, { key: 'ArrowRight' });
+    
+    // Test keyboard interaction
+  });
+});
+```
+
+### 2. Integration Testing
+```typescript
+import { useChat } from '@ai-sdk/react';
+import { renderHook, act } from '@testing-library/react';
+
+test('integrates properly with useChat', async () => {
+  const { result } = renderHook(() => useChat({
+    api: '/api/test-chat'
+  }));
+
+  act(() => {
+    result.current.append({
+      role: 'user',
+      content: 'Test message'
+    });
+  });
+
+  expect(result.current.messages).toHaveLength(1);
+  expect(result.current.messages[0].content).toBe('Test message');
+});
+```
+
+## Security Considerations
+
+### 1. Input Sanitization
+```typescript
+import DOMPurify from 'dompurify';
+
+const SecureResponse = ({ children, ...props }) => {
+  const sanitizedContent = useMemo(() => {
+    if (typeof children === 'string') {
+      return DOMPurify.sanitize(children);
+    }
+    return children;
+  }, [children]);
+
+  return (
+    <Response {...props}>
+      {sanitizedContent}
+    </Response>
+  );
+};
+```
+
+### 2. CSP-Compliant Styling
+```typescript
+// Avoid inline styles, use CSS classes
+const SecureCodeBlock = ({ code, language }) => (
+  <CodeBlock
+    code={code}
+    language={language}
+    className="secure-code-block" // Use CSS class instead of inline styles
+  />
+);
+```
+
+## Deployment Considerations
+
+### 1. Bundle Size Optimization
+```typescript
+// Dynamic imports for heavy components
+const DynamicCodeBlock = dynamic(
+  () => import('@/components/ai-elements/code-block'),
+  { 
+    loading: () => <Loader />,
+    ssr: false // If syntax highlighting not needed on server
+  }
+);
+```
+
+### 2. Environment-Specific Configuration
+```typescript
+const getResponseConfig = () => {
+  if (process.env.NODE_ENV === 'development') {
+    return {
+      allowedLinkPrefixes: ['*'], // Allow all links in dev
+      parseIncompleteMarkdown: true,
+    };
+  }
+  
+  return {
+    allowedLinkPrefixes: ['https://trusted-domain.com'], // Restrict in prod
+    parseIncompleteMarkdown: false,
+  };
+};
+
+export const ProductionResponse = (props) => (
+  <Response {...getResponseConfig()} {...props} />
+);
+```
